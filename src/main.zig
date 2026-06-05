@@ -4,6 +4,30 @@ const Io = std.Io;
 
 const c = @cImport(@cInclude("zkemsdk.h"));
 
+fn zkErrorString(error_code: c_int) []const u8 {
+    return switch (error_code) {
+        c.ZK_SUCCESS => "success",
+        c.ZK_ERR_NO_DATA => "no data",
+        c.ZK_ERR_INVALID_PARAM => "invalid param",
+        c.ZK_ERROR_NOT_INIT => "not initialized",
+        c.ZK_ERROR_IO => "I/O error",
+        c.ZK_ERROR_SIZE => "size error",
+        c.ZK_ERROR_NO_SPACE => "no space",
+        c.ZK_ERROR_UNSUPPORT => "unsupported",
+        else => "unknown error",
+    };
+}
+
+fn printLastError(writer: *Io.Writer) !void {
+    var error_code: c_int = undefined;
+    if (c.Z_LastError(&error_code) == 0) {
+        try writer.writeAll("Z_lastError failed\n");
+        return;
+    }
+
+    try writer.print("error: {s}\n", .{zkErrorString(error_code)});
+}
+
 // Pasos:
 //
 // - Cargar zkemsdk.dll.
@@ -51,14 +75,25 @@ pub fn main(init: std.process.Init) !void {
 
     try stdout.writeAll(" --- ZK POC ---\n\n");
 
-    if (c.Z_Connect_NET(ip_str, port) == 0) return error.Z_Connect_NETFailed;
+    if (c.Z_Connect_NET(ip_str, port) == 0) {
+        try printLastError(stdout);
+        return error.Z_Connect_NETFailed;
+    }
     defer c.Z_Close();
 
-    if (c.Z_EnableDevice(mn, 0) == 0) return error.Z_EnableDeviceFailed;
-    defer if (c.Z_EnableDevice(mn, 1) == 0)
+    if (c.Z_EnableDevice(mn, 0) == 0) {
+        try printLastError(stdout);
+        return error.Z_EnableDeviceFailed;
+    }
+    defer if (c.Z_EnableDevice(mn, 1) == 0) {
+        printLastError(stdout) catch {};
         stdout.print("error: Unable to enable back device {d}\n", .{mn}) catch {};
+    };
 
-    if (c.Z_ReadLog(mn) == 0) return error.Z_ReadLog;
+    if (c.Z_ReadLog(mn) == 0) {
+        try printLastError(stdout);
+        return error.Z_ReadLog;
+    }
 
     var tmachine: c_int = undefined;
     var enroll_number: c_int = undefined;
